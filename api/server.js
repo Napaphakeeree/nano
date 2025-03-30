@@ -1,63 +1,53 @@
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
-const { PrismaClient } = require('@prisma/client')
+const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
 
 const app = express();
 const prisma = new PrismaClient();
 const port = 3001;  // Express port
 
-let temperature = null; // สร้างตัวแปรข้อมูลอุณหภูมิ
-let humidity = null;
+let totalStudents = null; // จำนวนคนในห้อง
+let behaviorAvg = null; // ค่าเฉลี่ยพฤติกรรม
 
 // Middleware แปลงข้อมูล JSON
 app.use(bodyParser.json());
 
+// ตั้งค่า CORS
 app.use(cors({
   origin: '20.205.24.139' // เปลี่ยนเป็น*เพื่อเทส แต่ทำส่งใส่ip ของazure
 }));
 
-// API POST สำหรับ ESP32 ให้ส่งข้อมูลเข้ามา
-app.post("/updateTemperature", (req, res) => {
-  const temp = req.body.temperature;
-  if (temp !== undefined) {
-    temperature = temp;
-    console.log(`Received temperature: ${temperature}`);
-    res.status(200).send("Data received");
-  } else {
-    console.log("Temperature data is missing");
-    res.status(400).send("Temperature data is missing");
+// API POST สำหรับอัปเดตข้อมูลจำนวนคนในห้องและค่าเฉลี่ยพฤติกรรม
+app.post("/updateRoomData", (req, res) => {
+  const { students, behaviorLevel } = req.body;
+
+  if (students === undefined || behaviorLevel === undefined) {
+    return res.status(400).send("Missing students or behaviorLevel in request body");
   }
+
+  if (behaviorLevel < 1 || behaviorLevel > 5) {
+    return res.status(400).send("Behavior level must be between 1 and 5");
+  }
+
+  totalStudents = students;
+  behaviorAvg = behaviorLevel;
+
+  console.log(`Updated data - Total Students: ${totalStudents}, Behavior Avg.: ${behaviorAvg}`);
+  res.status(200).send("Room data updated successfully");
 });
 
-app.post("/updateHumidity", (req, res) => {
-  const hum = req.body.humidity;
-  if (hum !== undefined) {
-    humidity = hum;
-    console.log(`Received humidity: ${humidity}`);
-    res.status(200).send("Data received");
-  } else {
-    console.log("Humidity data is missing");
-    res.status(400).send("Humidity data is missing");
+// API สำหรับดึงข้อมูลจำนวนคนในห้องและค่าเฉลี่ยพฤติกรรม
+app.get("/getRoomData", (req, res) => {
+  if (totalStudents === null || behaviorAvg === null) {
+    return res.status(404).send("Room data not available");
   }
-});
 
-// API สำหรับ React web ให้ดึงข้อมูลจาก Express ไปใช้
-app.get("/getTemperature", (req, res) => {
-  if (temperature !== null) {
-    res.json({ temperature: temperature });
-  } else {
-    res.status(404).send("Temperature data not available");
-  }
-});
-
-app.get("/getHumidity", (req, res) => {
-  if (humidity !== null) {
-    res.json({ humidity: humidity });
-  } else {
-    res.status(404).send("Humidity data not available");
-  }
+  res.json({
+    totalStudents: totalStudents,
+    behaviorAvg: behaviorAvg
+  });
 });
 
 // เปิดใช้งาน Express พร้อมแสดงข้อความ
@@ -65,6 +55,7 @@ app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
 
+// การลงทะเบียนผู้ใช้ใหม่
 app.post('/register', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -73,7 +64,7 @@ app.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'All fields are required.' });
     }
 
-    const existingUser = await prisma.user_accout.findUnique({
+    const existingUser = await prisma.user_account.findUnique({
       where: { email: email },
     });
 
@@ -83,7 +74,7 @@ app.post('/register', async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const newUser = await prisma.user_accout.create({
+    const newUser = await prisma.user_account.create({
       data: {
         email: email,
         password: hashedPassword,
@@ -97,10 +88,11 @@ app.post('/register', async (req, res) => {
   }
 });
 
+// การเข้าสู่ระบบ
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
-  const user = await prisma.user_accout.findUnique({
+  const user = await prisma.user_account.findUnique({
     where: { email: email }
   });
 
